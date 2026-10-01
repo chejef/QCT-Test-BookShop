@@ -1,0 +1,81 @@
+@model Bookstore.Web.ViewModel.Resale.ResaleIndexViewModel
+
+@{ ViewData["Title"] = "Index"; }
+
+<div class="panel-body">
+    <h1>
+        Sell Your Books
+    </h1>
+
+    <div class="col-12 text-right">
+        <a asp-action="Create" asp-controller="Resale" class="btn">Resell Book</a>
+    </div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>
+                Book Name
+            </th>
+            <th>
+                Author
+            </th>
+            <th>
+                Genre
+            </th>
+            <th>
+                Publisher
+            </th>
+            <th>
+                Book Type
+            </th>
+            <th>
+                ISBN
+            </th>
+            <th>
+                Condition
+            </th>
+            <th>
+                Book Price
+            </th>
+            <th>
+                Status
+            </th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var item in Model.Items)
+        {
+            <tr>
+                <td>
+                    @item.BookName
+                </td>
+                <td>
+                    @item.Author
+                </td>
+                <td>
+                    @item.Genre
+                </td>
+                <td>
+                    @item.Publisher
+                </td>
+                <td>
+                    @item.BookType
+                </td>
+                <td>
+                    @item.ISBN
+                </td>
+                <td>
+                    @item.Condition
+                </td>
+                <td>
+                    @item.Price
+                </td>
+                <td>
+                    @item.OfferStatus
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
