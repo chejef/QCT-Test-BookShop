@@ -1,0 +1,38 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Centralized package versions will be added here as projects are migrated -->
+    <PackageVersion Include="Amazon.CDK.Lib" Version="2.272.0" />
+    <PackageVersion Include="Amazon.Jsii.Analyzers" Version="1.141.0" />
+    <PackageVersion Include="Cdklabs.CdkNag" Version="3.0.2" />
+    <PackageVersion Include="Constructs" Version="10.8.1" />
+    <PackageVersion Include="AWSSDK.Rekognition" Version="4.0.101" />
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.103.4" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.12" />
+    <PackageVersion Include="Autofac" Version="9.3.4" />
+    <PackageVersion Include="Autofac.Extensions.DependencyInjection" Version="11.0.2" />
+    <PackageVersion Include="AWS.Logger.Core" Version="4.0.3" />
+    <PackageVersion Include="AWS.Logger.NLog" Version="5.0.1" />
+    <PackageVersion Include="AWSSDK.CloudWatchLogs" Version="4.0.104" />
+    <PackageVersion Include="AWSSDK.Core" Version="4.0.102.8" />
+    <PackageVersion Include="AWSSDK.SimpleSystemsManagement" Version="4.0.104.1" />
+    <PackageVersion Include="Microsoft.IdentityModel.Abstractions" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Logging" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Protocols" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.23.0" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+    <PackageVersion Include="NLog" Version="6.2.1" />
+    <PackageVersion Include="NLog.Web.AspNetCore" Version="6.2.1" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.12" />
+    <PackageVersion Include="Magick.NET-Q8-AnyCPU" Version="14.17.2" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+</Project>

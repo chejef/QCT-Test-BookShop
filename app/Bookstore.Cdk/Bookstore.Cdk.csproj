@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RollForward>Major</RollForward>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Bookstore.Common\Bookstore.Common.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.CDK.Lib" />
+    <PackageReference Include="Cdklabs.CdkNag" />
+    <PackageReference Include="Constructs" />
+    <PackageReference Include="Amazon.Jsii.Analyzers" />
+  </ItemGroup>
+</Project>
