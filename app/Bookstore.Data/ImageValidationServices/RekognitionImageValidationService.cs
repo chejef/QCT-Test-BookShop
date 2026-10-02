@@ -1,4 +1,4 @@
-﻿using Amazon.Rekognition;
+using Amazon.Rekognition;
 using Amazon.Rekognition.Model;
 using Bookstore.Domain;
 using System;

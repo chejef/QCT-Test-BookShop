@@ -1,4 +1,4 @@
-﻿using Bookstore.Domain;
+using Bookstore.Domain;
 using ImageMagick;
 using System.IO;
 using System.Threading.Tasks;
