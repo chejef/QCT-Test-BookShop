@@ -14,7 +14,7 @@
         <form class="row row-cols-lg-auto g-3 align-items-center" method="get">
             <div class="col-12">
                 <label class="visually-hidden" for="OrderStatusSelect">Reference data type</label>
-                @Html.EnumDropDownListFor(a => a.Filters.OrderStatusFilter, "All Order Statuses", new { @class = "form-select" })
+                @Html.DropDownListFor(a => a.Filters.OrderStatusFilter, Html.GetEnumSelectList<OrderStatus>(), "All Order Statuses", new { @class = "form-select" })
             </div>
             <div class="col-12">
                 <label class="visually-hidden" for="OrderStatusSelect">Order date from</label>
@@ -31,7 +31,7 @@
             </div>
 
             <div class="col-12">
-                @Html.ActionLink("Clear", "Index", new { controller = "Orders" }, new { @class = "btn btn-secondary" })
+                <a asp-action="Index" asp-controller="Orders" class="btn btn-secondary">Clear</a>
             </div>
         </form>
     </div>
@@ -40,7 +40,7 @@
 <div class="card m-3">
     <div class="card-header">
         <div class="d-flex justify-content-end">
-            @Html.Partial("_Paginator")
+            <partial name="_Paginator" />
         </div>
     </div>
 
@@ -66,7 +66,7 @@
                         <td>@order.DeliveryDate.ToShortDateString()</td>
                         <td>@order.Total.ToString("C")</td>
                         <td>
-                            @Html.ActionLink("View", "Details", new { controller = "Orders", @id = order.Id }, new { @class = "card-link" })
+                            <a asp-action="Details" asp-controller="Orders" asp-route-id="@order.Id" class="card-link">View</a>
                         </td>
                     </tr>
                 }
@@ -76,7 +76,7 @@
 
     <div class="card-footer">
         <div class="d-flex justify-content-end">
-            @Html.Partial("_Paginator")
+            <partial name="_Paginator" />
         </div>
     </div>
 </div>

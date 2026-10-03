@@ -6,7 +6,7 @@
 
 <div class="panel-body">
     
-    @Html.Partial("_Notification")
+    <partial name="_Notification" />
 
     <p style="text-align: center">
         <h1>Cart</h1>
@@ -35,11 +35,11 @@
         @if (!User.Identity.IsAuthenticated)
         {
             <p>Please log in to complete your order.</p>
-            @Html.ActionLink("Log In", "Login", "Authentication", new { Area = "" }, new { @class = "btn" })
+            <a asp-action="Login" asp-controller="Authentication" asp-area="" class="btn">Log In</a>
         }
         else
         {
-            @Html.ActionLink("Check Out", "Index", "Checkout", new { Area = "" }, new { @class = "btn" })
+            <a asp-action="Index" asp-controller="Checkout" asp-area="" class="btn">Check Out</a>
         }
 
         <table class="table">

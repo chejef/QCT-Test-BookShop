@@ -2,7 +2,7 @@
 
 @model Bookstore.Web.Areas.Admin.Models.Orders.OrderDetailsViewModel
 
-@Html.Partial("_MessageBanner")
+<partial name="_MessageBanner" />
 
 <div class="d-flex m-3">
     <h5>Order Details</h5>
@@ -104,6 +104,6 @@
 
 <div class="row">
     <div class="col-8">
-        @Html.ActionLink("Back", "Index", new { controller = "Orders" }, new { @class = "btn btn-primary" })
+        <a asp-action="Index" asp-controller="Orders" class="btn btn-primary">Back</a>
     </div>
 </div>

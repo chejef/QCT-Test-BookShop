@@ -23,6 +23,6 @@
         </div>
 
         <button class="btn btn-primary" type="submit">Save</button>
-        @Html.ActionLink("Back", "Index", new { controller = "ReferenceData" }, new { @class = "btn btn-secondary" })
+        <a asp-action="Index" asp-controller="ReferenceData" class="btn btn-secondary">Back</a>
     </div>
 </form>

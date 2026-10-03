@@ -72,7 +72,6 @@ if (authMode == "aws")
             OnRedirectToIdentityProvider = context =>
             {
                 var returnUrl = context.Request.GetReturnUrl();
-                context.Options.RedirectUri = returnUrl;
                 context.ProtocolMessage.RedirectUri = returnUrl;
                 return Task.CompletedTask;
             },
