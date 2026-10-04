@@ -2,6 +2,7 @@
 
 **Artifact type:** authoring specification (a contract for an output document).
 **Audience:** AI coding agents — Kiro, Claude Code, Cursor, Copilot, or any agent with filesystem read access and a shell.
+**Applies to:** any technology stack. The output contract, evidence rules, and complexity rubric are language-neutral; stack-specific guidance for .NET, Java (Maven, Gradle, Ant), Node, Python, and Go is in Step 1 and §7. Nothing here assumes a particular language or build tool.
 **Status:** normative. An agent that produces a BRD not conforming to this specification has failed the task.
 
 ---
@@ -31,7 +32,7 @@ The agent **must** obtain these three values before starting. If any is missing,
 
 | Input | Example | If not supplied |
 |---|---|---|
-| `SCOPE` | "the whole BobsBookstoreClassic monolith"; "the checkout and order flow only"; "the Catalog service extraction" | Ask. Scope determines everything downstream. |
+| `SCOPE` | "the whole BobsBookstoreClassic .NET monolith"; "the Struts claims module under `src/main/java/com/example/claims`"; "the checkout and order flow only" | Ask. Scope determines everything downstream. |
 | `AUDIENCE` | "business stakeholders approving funding"; "the delivery team"; "an external systems integrator" | Default to business stakeholders approving funding, and say so in the document control block. |
 | `OUTPUT_PATH` | `docs/brd/bookstore-modernization-brd.md` | Default to `docs/brd/<scope-slug>-brd.md`. |
 
@@ -47,13 +48,29 @@ Do not begin writing the BRD until steps 1 to 3 are complete. A BRD written from
 
 Enumerate the system mechanically first. Record actual results, not expectations.
 
-- Build and project files: every `*.csproj`, `package.json`, `pom.xml`, `requirements.txt`, `go.mod`, `*.sln`. Extract target frameworks and declared dependency versions verbatim.
+- Build and project files — see the per-ecosystem table below. Extract the target runtime and the **effective** dependency versions.
 - Entry points: web controllers, API routes, CLI commands, scheduled jobs, message consumers, event handlers.
 - Persistence: schema definitions, migrations, ORM mappings, seed/initializer code.
 - External calls: SDK clients, HTTP clients, connection strings, queue and topic names, file and blob paths.
 - Configuration: config files, environment variable reads, secret stores, feature flags.
 - Infrastructure as code and CI pipeline definitions.
 - Authentication and authorization enforcement points.
+
+#### Where authoritative versions come from
+
+**A declared version is not always the shipped version.** Read the manifest, then resolve the effective version with the build tool. Report the resolved value, and when the two differ, say so.
+
+| Ecosystem | Manifests to read | Command that gives the authoritative answer | Trap |
+|---|---|---|---|
+| **.NET** | `*.sln`, `*.csproj`, `Directory.Build.props`, `Directory.Packages.props`, `packages.config`, `*.vbproj` | `dotnet list package --include-transitive` | Central Package Management moves versions out of the `.csproj` into `Directory.Packages.props`; legacy projects hide them in `packages.config` plus `<HintPath>` references. A `<Reference>` with a `HintPath` is a dependency even with no `PackageReference`. |
+| **Java — Maven** | `pom.xml`, parent POMs, `.mvn/` config | `mvn help:effective-pom` and `mvn dependency:tree` | **Maven has no lock file.** `pom.xml` frequently omits the version entirely — it is supplied by a parent POM, `<dependencyManagement>`, or an imported BOM such as `spring-boot-dependencies`. Reading `pom.xml` alone yields a missing or wrong version. Multi-module builds need the aggregator, not one module. |
+| **Java — Gradle** | `build.gradle`, `build.gradle.kts`, `settings.gradle`, `gradle.properties`, `gradle/libs.versions.toml` | `gradle dependencies` or `gradle :module:dependencies` | `gradle.lockfile` exists **only** if dependency locking was explicitly enabled. Versions may come from a version catalogue, a platform/BOM, or a resolution strategy that overrides the declaration. |
+| **Java — Ant** | `build.xml`, `ivy.xml`, a checked-in `lib/` directory | None — inspect the JARs | Common in genuinely old estates. Versions may exist only in JAR filenames or `MANIFEST.MF`. Record what the manifest says and tag `[?]` where a JAR is unidentifiable. |
+| **Node** | `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` | `npm ls --all` | `package.json` holds ranges, not versions. The lock file is authoritative. |
+| **Python** | `pyproject.toml`, `requirements*.txt`, `poetry.lock`, `Pipfile.lock` | `pip freeze` in the project environment | Unpinned ranges in `requirements.txt` are not versions. |
+| **Go** | `go.mod`, `go.sum` | `go list -m all` | `go.mod` may be superseded by `replace` directives. |
+
+For the runtime itself, capture the **vendor as well as the version** (`R-64`). Look in the build config (`maven.compiler.release`, `sourceCompatibility`, `<java.version>`, `<TargetFramework>`), the CI pipeline's SDK or JDK setup step, the `Dockerfile`, and the container base image. These four disagree more often than not, which is itself a finding (`R-63`).
 
 ### Step 2 — Trace the primary flows end to end
 
@@ -191,7 +208,7 @@ Group by HLR with a subheading per parent (`#### HLR-01 — <text>`), then a tab
 Rules:
 
 - `R-20` One requirement per row. If the statement contains "and" joining two testable behaviours, split it.
-- `R-21` Cite the real symbol. "Order totals are recalculated from current catalogue prices `[V: Bookstore.Domain/Orders/Order.cs — Order.SubTotal sums OrderItems x.Book.Price]`" is useful. "The order logic needs review" is not.
+- `R-21` Cite the real symbol. Useful: "Order totals are recalculated from current catalogue prices `[V: Bookstore.Domain/Orders/Order.cs — Order.SubTotal sums OrderItems x.Book.Price]`", or "Stock is decremented without optimistic locking `[V: src/main/java/com/example/order/OrderService.java:88 — reserveStock read-modify-write, no @Version]`". Not useful: "the order logic needs review".
 - `R-22` **Record defects found during analysis as requirements, and flag them as behaviour changes.** When current behaviour is wrong, the BRD must state: what the code does, what it should do, and that fixing it is a deliberate change with a user-visible consequence. Silently specifying correct behaviour hides a change nobody approved.
 - `R-23` Data migration and backfill are requirements, not implementation detail. If a new column must be populated for existing rows, that is an LLR with acceptance criteria.
 - `R-24` Do not specify the solution's internals. "The service shall expose book stock levels to other components" is an LLR. "The service shall expose `GET /api/v1/books/{id}/stock` returning 200 with a JSON body" is an interface design decision — acceptable only if the requester asked for interface-level requirements, and it must then be tagged `[A]` or cross-referenced to the design authority.
@@ -305,12 +322,33 @@ Rules:
 
 ### 7. Existing Technology Stack
 
-Factual inventory of what is in use today. Versions come from project and lock files, read verbatim — **never** from memory of what version is current.
+Factual inventory of what is in use today. Versions are the **effective** versions resolved per Step 1's ecosystem table — **never** recalled from memory of what version is current.
 
-| Layer | Technology | Version in repo | Latest / Target | Support status | EOL date | Risk | Evidence |
-|---|---|---|---|---|---|---|---|
+| Layer | Technology | Vendor | Version in repo | Latest / Target | Support status | EOL date | Risk | Evidence |
+|---|---|---|---|---|---|---|---|---|
 
-Layers to cover, omitting only those genuinely absent: runtime and language; web and UI framework; data access and ORM; database engine; authentication; cloud SDKs and services; image, document, and media processing; messaging; logging and monitoring; build tooling and package management; containerization; infrastructure as code; CI/CD; test frameworks.
+`Vendor` is required wherever it affects licence or support dates (JDK distribution, database edition, commercial libraries) and is `n/a` otherwise (`R-64`).
+
+Layers to cover, omitting only those genuinely absent:
+
+| | Layer | Notes |
+|---|---|---|
+| 1 | Runtime and language | Vendor and version (`R-64`). Language level separately where it differs from the runtime |
+| 2 | Application server or host | **Java:** servlet container or app server — Tomcat, Jetty, WildFly/JBoss, WebSphere, WebLogic, GlassFish. Frequently the single largest migration cost item, so never fold it into "runtime". **.NET:** IIS, Kestrel, or a Windows service |
+| 3 | Web, API, and UI framework | Spring MVC/Boot, Struts, JSF, Jakarta/Java EE, ASP.NET MVC, Web Forms, Razor, WCF |
+| 4 | Platform API namespace | **Java:** `javax.*` versus `jakarta.*` — a hard, non-negotiable break at Jakarta EE 9 affecting every import, dependency, and app server. **.NET:** `System.Web` versus `Microsoft.AspNetCore` |
+| 5 | Data access and ORM | Hibernate, JPA provider, MyBatis, JDBC, Spring Data, Entity Framework, EF Core, Dapper. Record the ORM version independently of the spec version it implements |
+| 6 | Database engine | Engine, edition, and version. Edition drives licence cost |
+| 7 | Authentication and identity | |
+| 8 | Cloud SDKs and services | SDK major version, since major versions are breaking |
+| 9 | Media, document, and image processing | Native-dependency libraries carry platform risk and are often licence-encumbered |
+| 10 | Messaging and integration | |
+| 11 | Logging and monitoring | **Java:** the facade and binding separately (SLF4J plus Logback or Log4j2) — a Log4j version is a security finding, not a preference |
+| 12 | Build tooling and dependency management | Maven, Gradle, Ant, MSBuild, npm. Include the tool's own version |
+| 13 | Containerization and base images | |
+| 14 | Infrastructure as code | |
+| 15 | CI/CD | |
+| 16 | Test frameworks | |
 
 Follow the table with:
 
@@ -321,8 +359,10 @@ Follow the table with:
 Rules:
 
 - `R-60` `Support status` is one of `Supported` / `Ending within 12 months` / `Out of support` / `Unknown`, with a date for the first three. Verify end-of-life dates against vendor sources at generation time; do not rely on model knowledge for a date.
-- `R-61` Licence terms that require a commercial decision must be named explicitly, not described as "may require review".
+- `R-61` Licence terms that require a commercial decision must be named explicitly, not described as "may require review". This applies to the runtime itself: an Oracle JDK in a commercial deployment is a licence question with a cost attached, and a BRD that records only "Java 8" has concealed it.
 - `R-62` If a version cannot be determined, write `[?]`. Do not write "latest".
+- `R-63` Where manifests, CI configuration, and the container base image declare **different** runtime versions, record each with its source and identify which one produces the deployed artefact. The disagreement is itself a finding — it usually means the build and the runtime environment have drifted apart.
+- `R-64` Record **vendor and version** for the runtime, not version alone, wherever the vendor is a licence or support variable. `net48` is a complete answer. "Java 8" is not — Oracle JDK, Eclipse Temurin, Amazon Corretto, Azul Zulu, and Red Hat OpenJDK differ in licence terms and in support end dates by years. The same applies to database editions and to any commercially licensed library.
 
 ---
 
@@ -340,7 +380,7 @@ Score each dimension 1 to 5 against these anchors, then apply the weight. A scor
 | D2 | **Coupling and blast radius** | Isolated, no caller changes | A few known callers | Shared state or an in-process transaction that must be broken apart | 20% |
 | D3 | **Data model impact** | No schema change | Additive columns | Schema split, backfill, or a change to historical values | 20% |
 | D4 | **Integration count** | No external dependency | A handful, all documented | Many, some unowned or undocumented | 10% |
-| D5 | **Platform and runtime change** | Same runtime and host | Minor version move | Runtime, OS, and hosting model all change | 15% |
+| D5 | **Platform and runtime change** | Same runtime and host | Minor version move | Runtime, OS, and hosting model all change — e.g. .NET Framework to .NET on Linux, or Java EE on WebSphere to Jakarta EE on a container with the `javax.*` to `jakarta.*` break | 15% |
 | D6 | **Verifiability** | Existing automated tests cover it | Tests must be written, behaviour is clear | No tests, and correct behaviour is disputed or undefined | 10% |
 | D7 | **Reversibility** | Revert a deployment | Revert plus a data fix | Not practically reversible once live | 5% |
 | D8 | **Unknowns** | Everything verified | A few open questions | Core business rules undefined, or many `[?]` | 5% |
@@ -447,9 +487,11 @@ The agent must verify every line and report the result. Do not claim completion 
 
 **Technology stack**
 
-- [ ] Every version read from a project or lock file, not recalled
+- [ ] Every version resolved with the build tool per Step 1's ecosystem table, not read from a manifest alone and not recalled
+- [ ] Runtime vendor recorded wherever it affects licence or support (`R-64`)
+- [ ] Runtime version disagreements between manifest, CI, and base image reported (`R-63`)
 - [ ] Support status and EOL dates verified against vendor sources at generation time
-- [ ] Licence decisions named explicitly
+- [ ] Licence decisions named explicitly, including the runtime's
 
 **Complexity**
 
@@ -479,7 +521,9 @@ These are the failure modes that make a generated BRD worthless. Each has been s
 | **Defect laundering** — specifying the correct behaviour without noting the code does something else | Hides an unapproved behaviour change; historical data or reports may shift | `R-22`: state current, state target, flag the change |
 | **Complexity by adjective** — "this is complex due to legacy architecture" | Unfalsifiable, unactionable, unplannable | §8 scoring with evidence and named drivers |
 | **Happy-path-only workflows** | Error handling is usually where the business rules live and where the effort goes | `R-40` to `R-42`: branches and failure paths |
-| **Version drift** — recalling library versions or EOL dates from training data | Confidently wrong; EOL dates in particular move and matter | Read the lock file; check the vendor source |
+| **Version drift** — recalling library versions or EOL dates from training data | Confidently wrong; EOL dates in particular move and matter | Resolve with the build tool per Step 1; check the vendor source for dates |
+| **Trusting the manifest** — reporting a version read from `pom.xml`, `build.gradle`, or `package.json` as `[V]` | Those files hold ranges, or no version at all when a parent POM, BOM, or version catalogue supplies it. The reported version is then simply wrong | Step 1's ecosystem table: `mvn dependency:tree`, `gradle dependencies`, `npm ls`, `dotnet list package` |
+| **Version without vendor** — "Java 8" | Hides a licence cost and an support-date difference of years between distributions | `R-64`: vendor and version together |
 | **Architecture freelancing** — proposing a target design that contradicts an existing design authority in the repo | Produces a document the architects reject wholesale | `R-52` and `§6.2`: match and cite the authority |
 | **Scope silence** — not stating what is excluded | Everything is assumed included; the estimate is wrong from day one | Document control states exclusions explicitly |
 | **Missing the shared-data dependency** | The most expensive coupling to discover late | `R-30`: search for it and report the result either way |
