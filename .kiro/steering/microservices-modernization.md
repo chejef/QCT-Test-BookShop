@@ -21,7 +21,7 @@ This document is normative. Where a rule is numbered (`TR-*`, `CS-*`, `MP-*`, `A
 5. [Shared layers](#5-shared-layers)
 6. [Data access layer specification](#6-data-access-layer-specification)
 7. [REST service interface standards](#7-rest-service-interface-standards)
-8. [ECS Anywhere hosting constraints](#8-ecs-anywhere-hosting-constraints)
+8. [ECS Anywhere hosting and infrastructure as code](#8-ecs-anywhere-hosting-and-infrastructure-as-code)
 9. [Coding standards](#9-coding-standards)
 10. [Migration preferences](#10-migration-preferences)
 11. [Transformation rules](#11-transformation-rules)
@@ -40,7 +40,7 @@ AWS Transform for .NET **ports** code; it does not decompose a monolith. Treat t
 | **Phase 1 — Port** | AWS Transform for .NET | `net10.0` SDK-style projects, EF Core, ASP.NET Core. Same project boundaries as today. Builds and runs in a Linux container. |
 | **Phase 2 — Extract shared layers** | Kiro + engineers | `Bookstore.DataModel`, `Bookstore.DataAccess`, `Bookstore.Contracts`, `Bookstore.Platform` as independently versioned packages. |
 | **Phase 3 — Split services** | Kiro + engineers | One deployable per bounded context, each with a REST interface. Strangler-fig cutover behind the gateway. |
-| **Phase 4 — Host** | Engineers | ECS Anywhere cluster, external instances, ingress, observability. |
+| **Phase 4 — Host** | Engineers | ECS Anywhere cluster, external instances, ingress, observability — provisioned by **Terraform** (`§8.1`). |
 
 ATX facts that constrain Phase 1 ([supported versions](https://docs.aws.amazon.com/transform/latest/userguide/dotnet.html)):
 
@@ -63,7 +63,7 @@ Read from the repository, not assumed:
 | `app/Bookstore.Domain` | net48 | Entities, DTOs, services, repository interfaces | No external dependencies — only BCL references |
 | `app/Bookstore.Data` | net48 | EF 6.5.1 repositories, S3, Rekognition, Magick.NET | `packages.config`-era `<Reference>` + `HintPath` to `..\..\packages\` |
 | `app/Bookstore.Common` | net48 | One constant (`AppName = "BobsUsedBooksClassic"`) | Candidate for deletion |
-| `app/Bookstore.Cdk` | SDK-style | CDK: `NetworkStack`, `CoreStack`, `DatabaseStack`, `EcsStack` | Targets Fargate/EC2 today, not `EXTERNAL` |
+| `app/Bookstore.Cdk` | SDK-style (net9.0) | AWS CDK in C#: `NetworkStack`, `CoreStack`, `DatabaseStack`, `EcsStack` | Targets Fargate/EC2 today, not `EXTERNAL`. **Being retired — infrastructure moves to Terraform (`§8.1`, `TR-48`).** |
 
 Current dependency direction: `Web → Data → Domain`, with `Web → Domain`. `Domain` owns the service classes *and* their interfaces (e.g. `IOrderService` and `OrderService` both live in `Orders/OrderService.cs`).
 
@@ -414,7 +414,7 @@ The contract the user asked for: **`Bookstore.DataModel` types map 1:1 onto tabl
 
 ---
 
-## 8. ECS Anywhere hosting constraints
+## 8. ECS Anywhere hosting and infrastructure as code
 
 ECS Anywhere is materially more restrictive than Fargate or EC2. These constraints drive architecture, not the other way around. Source: [EXTERNAL launch type considerations](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-anywhere.html).
 
@@ -439,8 +439,56 @@ Operational rules:
 - `CS-85` **Container images:** multi-stage Dockerfile on `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`, non-root user, no shell in the final layer, `HEALTHCHECK` present. Build multi-arch (`linux/amd64` + `linux/arm64`) unless the fleet is confirmed single-architecture.
 - `CS-86` **Logs:** `awslogs` driver, which requires a task **execution** role in the task definition. Log JSON to stdout; no file logging — there is no durable volume.
 - `CS-87` **Config:** non-secret values from SSM Parameter Store, secrets from Secrets Manager, both injected via the task definition `secrets` block. Twelve-factor; no config baked into the image.
-- `CS-88` **CDK:** rewrite `app/Bookstore.Cdk/EcsStack.cs` for `EXTERNAL` launch type — `ExternalTaskDefinition`, `ExternalService`, `NetworkMode.BRIDGE`, SSM activations for instance registration. Keep `NetworkStack`, `CoreStack`, `DatabaseStack` but re-scope them (see `AR-6`). Do not carry Fargate constructs forward; they will fail at synth or at deploy.
+- `CS-88` **Infrastructure as code is Terraform**, not CDK. See `§8.1`. The existing `app/Bookstore.Cdk` C# project is retired, not ported (`TR-48`).
 - `CS-89` **Graceful shutdown:** handle `SIGTERM`, stop accepting new work, drain in-flight requests within `stopTimeout`. Without this, `bridge`-mode deployments drop requests on every release because there is no load balancer connection draining.
+
+### 8.1 Infrastructure as code — Terraform
+
+All AWS infrastructure is declared in Terraform HCL. The CDK project is deleted once parity is proven; the two never coexist as sources of truth for the same resource.
+
+#### Repository layout
+
+```
+infra/
+  bootstrap/                     # state bucket, lock, OIDC role. Applied once, local state, then migrated.
+  modules/
+    network/                     # replaces NetworkStack
+    database/                    # replaces DatabaseStack (scope per AR-6)
+    ecr-repository/              # one repo per service, lifecycle policy
+    ecs-anywhere-cluster/        # cluster, SSM activation, instance + execution IAM roles
+    ecs-external-service/        # task definition + service, EXTERNAL launch type
+    service-iam/                 # per-service task role, least privilege
+    observability/               # log groups, metric filters, alarms, dashboards
+  envs/
+    dev/                         # root module: backend config + module calls + *.tfvars
+    test/
+    prod/
+```
+
+- `CS-90` **One root module per environment** under `infra/envs/<env>/`, each with its own backend key and its own `terraform.tfvars`. Do not use Terraform workspaces to separate environments — a workspace shares the root module's provider and backend configuration, so a `prod` apply is one `terraform workspace select` away from the wrong target. Separate directories make the blast radius visible in the file path.
+- `CS-91` **Remote state in S3**, one key per environment, bucket versioned and encrypted with a CMK, state locking enabled, and `prevent_destroy` on the bucket. State is read-restricted: it contains resource attributes and any value a resource returns. Never commit `.tfstate`, `.tfstate.backup`, or `.terraform/`.
+- `CS-92` **Pin everything.** `required_version` is an exact Terraform version; every provider in `required_providers` has a `version` constraint pinned to a patch release; `.terraform.lock.hcl` is committed and reviewed. An unpinned provider upgrade can rewrite a plan without a code change.
+- `CS-93` **Modules are versioned and have a contract.** Every module ships `variables.tf` with explicit `type` and `description` on each variable (never `any`), `validation` blocks on anything constrained (environment name, port range, CPU/memory), `outputs.tf`, and a `README.md` stating what it creates. Child modules declare no `provider` blocks and no backend — only root modules do.
+- `CS-94` **Tagging is centralised** in the provider's `default_tags`: `Application`, `Environment`, `Service`, `Owner`, `CostCentre`, `ManagedBy = "terraform"`, `Repository`. Do not repeat tags per resource. The `AppName` value from the retired `Bookstore.Common` (`MP-3`, `TR-49`) becomes the `Application` tag value and a variable, not a literal.
+- `CS-95` **No secrets in Terraform.** Terraform creates the `aws_secretsmanager_secret` and the IAM policy granting read access; it does **not** set `secret_string`. Values are written out of band by the secret owner, or generated and rotated by a rotation Lambda. A secret value passed through a variable lands in plaintext in state. Database passwords follow the same rule (`CS-60`).
+- `CS-96` **`for_each` over a typed map, not `count`,** when creating one resource per service. `count` re-indexes on list insertion and will destroy and recreate unrelated services. Service definitions live in one `locals` map keyed by service name.
+- `CS-97` **Terraform's job stops at the SSM activation.** No `provisioner`, no `local-exec`, no `null_resource` holding real logic. The external instances are customer-managed hardware that already exists — do not try to model them as `aws_instance`. Host preparation (Docker, the ECS Anywhere install script, the `route_localnet` and `iptables` rules from `§8`) belongs in the host build or a configuration-management tool, and registration is a documented host procedure.
+- `CS-98` **CI is the only path to `apply`.** Pipeline order: `terraform fmt -check` → `terraform validate` → `tflint` → `checkov` (or `trivy config`) → `terraform plan -out=tfplan` published as a reviewable artifact → manual approval for `test` and `prod` → `terraform apply tfplan` against that exact saved plan. CI authenticates with an OIDC-federated role; no long-lived IAM access keys. Nobody applies to `prod` from a workstation.
+- `CS-99` **Drift is an incident, not a chore.** A scheduled `terraform plan` runs against every environment and fails the job on a non-empty plan. Manual console changes to a Terraform-managed resource are reverted, not imported, unless the change is deliberately adopted by a PR.
+
+#### ECS Anywhere resource specifics
+
+The constraints in `§8` are not advisory in Terraform — several of them are hard provider errors. Get these right the first time:
+
+| Resource | Required configuration | Trap |
+|---|---|---|
+| `aws_ecs_cluster` | Plain cluster. | Do **not** declare `aws_ecs_cluster_capacity_providers` — capacity providers are unsupported for `EXTERNAL`. |
+| `aws_ecs_task_definition` | `requires_compatibilities = ["EXTERNAL"]`, `network_mode = "bridge"`, `execution_role_arn` set (required for `awslogs`, `CS-86`), `task_role_arn` per service, explicit `portMappings` with host ports. The image tag or digest is an **input variable** supplied by the application pipeline, so an application deploy is not an infrastructure PR. | `network_mode = "awsvpc"` is rejected at run time by the scheduler, not at plan time. Host ports must not collide on an instance — allocate a documented port range per service. Every container-definition change creates a new revision: pin the service to `aws_ecs_task_definition.this.arn` so it tracks the revision Terraform just created. |
+| `aws_ecs_service` | `launch_type = "EXTERNAL"`, `scheduling_strategy = "DAEMON"` for ingress and `"REPLICA"` for application services, `placement_constraints` on `attribute:ecs.capability.external`. | Omit `network_configuration`, `load_balancer`, `service_registries`, and `capacity_provider_strategy` — all four are invalid or inert here. A `load_balancer` block is the most common mistake carried over from Fargate modules. |
+| `aws_ssm_activation` | `iam_role` = the ECS Anywhere instance role, `registration_limit` sized to the fleet, explicit `expiration_date`. | **Activations expire (30 days maximum).** A Terraform-managed activation is not a durable registration mechanism; registering new hardware later needs a fresh activation. Treat the activation as a short-lived onboarding credential and document the rotation step in the runbook. The activation code and ID are sensitive outputs. |
+| IAM | Three distinct roles: instance role (`AmazonSSMManagedInstanceCore` + `AmazonEC2ContainerServiceforEC2Role`), task **execution** role (ECR pull, `logs:*` on the service's log group, `secretsmanager:GetSecretValue` on its secrets), and a task role per service. | Do not reuse the execution role as the task role. The execution role is the agent's identity; the task role is the application's. Collapsing them grants every service the ability to read every other service's secrets. |
+| `aws_cloudwatch_log_group` | One per service, explicit `retention_in_days`, KMS-encrypted. | Created implicitly by the `awslogs` driver with `awslogs-create-group`, which leaves an untagged group with infinite retention and unbounded cost. Always create it in Terraform. |
+| `aws_ecr_repository` | `image_scanning_configuration` on, `image_tag_mutability = "IMMUTABLE"`, lifecycle policy expiring untagged images. | Mutable tags break rollback: `:latest` is not a version. Deploy by digest or immutable tag. |
 
 ---
 
@@ -574,7 +622,7 @@ Mechanical rules. Use these as ATX custom transformation instructions and as the
 | `TR-45` | `AuthenticationController` + OWIN Cognito wiring → ASP.NET Core JWT bearer / OIDC. `Customer.Sub` remains the external subject identifier (`CS-14`). |
 | `TR-46` | Each storefront/admin controller is replaced by an API controller in the owning service per the `§4` table. Views stay in the UI project and call the services over HTTP. |
 | `TR-47` | `Bookstore.Web/Dockerfile` → Linux multi-stage chiselled image (`CS-85`), one per service. |
-| `TR-48` | `app/Bookstore.Cdk/EcsStack.cs` → `EXTERNAL` launch type constructs (`CS-88`). |
+| `TR-48` | **`app/Bookstore.Cdk` is retired, not ported.** Exclude it from the ATX transformation scope — porting a C# CDK app to `net10.0` is wasted effort when the target is Terraform. Read each stack for intent and re-express it as HCL under `infra/modules/` (`§8.1`): `NetworkStack` → `modules/network`, `DatabaseStack` → `modules/database` (re-scoped per `AR-6`), `CoreStack` → `modules/ecr-repository` + `modules/observability` + the media S3 bucket, `EcsStack` → `modules/ecs-anywhere-cluster` + `modules/ecs-external-service` with `launch_type = "EXTERNAL"` and `network_mode = "bridge"`. Do not translate the Fargate constructs literally; `FargateTaskDefinition`, `ApplicationLoadBalancedFargateService`, and any `awsvpc` networking have no valid Terraform equivalent here (`§8`). Delete the project and its `GlobalSuppressions.cs` only after the Terraform plan is clean against a real environment, and record the resource-by-resource parity check in the PR. |
 | `TR-49` | Delete `Bookstore.Common`; move `AppName` to configuration (`MP-3`). |
 
 ### Third-party and AWS SDK
@@ -598,6 +646,9 @@ Mechanical rules. Use these as ATX custom transformation instructions and as the
 - No new features. If a requirement surfaces that is not in the current code, it is a change request.
 - Do not rename tables or columns (`CS-50`).
 - Do not "improve" the seed data in `BookstoreDbInitializer` while porting it.
+- **No CDK, no raw CloudFormation, no SAM, no Serverless Framework.** Terraform is the only infrastructure source of truth (`CS-88`). Do not generate CloudFormation templates and wrap them in `aws_cloudformation_stack` to avoid writing HCL — that hides the resources from `plan` and from drift detection.
+- Do not port `app/Bookstore.Cdk` to `net10.0`. It is excluded from ATX scope and deleted (`TR-48`).
+- No Terraform Cloud / HCP Terraform runtime dependency unless `AR-15` selects it. The default is S3 remote state with CI-driven applies.
 
 ---
 
@@ -607,7 +658,7 @@ A service is done when all of the following hold. No partial credit.
 
 1. Builds on `net10.0` with zero warnings, `TreatWarningsAsErrors` on.
 2. Runs as a non-root Linux container and passes `/health/live` and `/health/ready`.
-3. Deployed to the ECS Anywhere cluster with `launchType: EXTERNAL` and `bridge` networking, reachable through the ingress.
+3. Deployed to the ECS Anywhere cluster with `launchType: EXTERNAL` and `bridge` networking, reachable through the ingress. Every AWS resource it depends on was created by `terraform apply` from CI — a scheduled `terraform plan` against the environment is empty (`CS-98`, `CS-99`).
 4. Owns its schema; no query touches another service's tables (verified by reviewing the generated SQL, not by assertion).
 5. Depends on `Bookstore.DataModel`, `Bookstore.DataAccess`, `Bookstore.Contracts`, and `Bookstore.Platform` by **package version**, not project reference.
 6. Publishes a committed OpenAPI document; contract tests pass against the running service.
@@ -615,7 +666,7 @@ A service is done when all of the following hold. No partial credit.
 8. `*.Domain` and `*.Application` coverage ≥ 70%.
 9. Logs are structured, correlated, and reaching CloudWatch. No PII (`CS-118`).
 10. The gateway route for the old monolith path is still present and can be reverted within one deployment.
-11. A runbook exists: deploy, roll back, rotate secrets, drain an instance.
+11. A runbook exists: deploy, roll back, rotate secrets, drain an instance, rotate an expiring SSM activation, and recover Terraform state.
 12. Every deviation from this document is recorded in the PR with the rule number it departs from and why.
 
 ---
@@ -635,6 +686,9 @@ These change cost, risk, or security posture. They are **not** for Kiro or ATX t
 | `AR-11` | Identity provider | Keep Amazon Cognito vs on-prem IdP (Entra ID, Keycloak) | Keep Cognito if the current `Customer.Sub` values must stay valid; changing IdP invalidates every existing subject identifier. |
 | `AR-12` | Tax rate source | Replace the hardcoded `0.1m` (`CS-122`) with configuration, a tax table, or a tax service | Configuration as a minimum. Confirm whether multi-jurisdiction tax is in scope — it is not in the current code. |
 | `AR-13` | Fleet architecture | x86_64 only, ARM64 only, or mixed | Determines whether multi-arch image builds are required (`CS-85`). |
+| `AR-14` | Terraform distribution and licence | HashiCorp Terraform (BUSL 1.1 since v1.6) vs OpenTofu (MPL 2.0) | **Needs a legal answer, not an engineering one.** BUSL restricts use in a competing product; for internal infrastructure that is normally fine, but the determination is yours to make. The HCL in `§8.1` works unchanged on either, so the decision is reversible — but pin one (`CS-92`) and state it here. |
+| `AR-15` | State backend and runner | S3 + CI with OIDC (the default in `CS-91`, `CS-98`) vs HCP Terraform / Terraform Enterprise vs a self-hosted runner on-prem | **S3 + CI with OIDC.** It adds no new vendor and no new egress dependency. Reconsider only if `prod` applies must run inside the on-prem network — ECS Anywhere is on-prem compute, but the Terraform-managed resources are all in-Region, so the runner does not need to be. |
+| `AR-16` | Who owns the CDK-to-Terraform parity check | Import existing resources into Terraform state vs recreate them in a fresh environment | **Recreate.** `terraform import` against CDK-created resources inherits CloudFormation-generated physical names and drift that will fight you at every later `plan`. A clean build is cheaper than reconciling two state models, provided the data layer is handled separately (`MP-15`). Confirm there are no production resources that cannot be recreated. |
 
 ---
 
@@ -643,3 +697,4 @@ These change cost, risk, or security posture. They are **not** for Kiro or ATX t
 | Date | Change | Rules | Approver |
 |---|---|---|---|
 | 2026-10-01 | Initial version | all | pending |
+| 2026-10-04 | Infrastructure as code switched from AWS CDK to Terraform. Added `§8.1` (layout, state, pinning, module contract, tagging, secrets, CI gates, drift, ECS Anywhere resource specifics). `app/Bookstore.Cdk` moved from "rewrite" to "retire and exclude from ATX scope". | `CS-88`, `CS-90`–`CS-99`, `TR-48`, `AR-14`–`AR-16`, `§1`, `§2`, `§12`, `§13` | pending |
